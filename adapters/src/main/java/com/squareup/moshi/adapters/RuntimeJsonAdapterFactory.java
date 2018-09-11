@@ -86,8 +86,12 @@ public final class RuntimeJsonAdapterFactory<T> implements JsonAdapter.Factory {
       typeToLabel.put(typeValue, label);
       labelToAdapter.put(label, moshi.adapter(typeValue));
     }
-    JsonAdapter<Object> objectJsonAdapter = moshi.nextAdapter(
-        this, Object.class, Util.NO_ANNOTATIONS);
+    JsonAdapter<Object> objectJsonAdapter;
+    if (baseType == Object.class) {
+      objectJsonAdapter = moshi.nextAdapter(this, Object.class, Util.NO_ANNOTATIONS);
+    } else {
+      objectJsonAdapter = moshi.adapter(Object.class);
+    }
     return new RuntimeJsonAdapter(labelKey, labelToAdapter, typeToLabel, objectJsonAdapter)
         .nullSafe();
   }
@@ -112,7 +116,7 @@ public final class RuntimeJsonAdapterFactory<T> implements JsonAdapter.Factory {
         throw new JsonDataException("Expected BEGIN_OBJECT but was " + peekedToken
             + " at path " + reader.getPath());
       }
-      Object jsonValue = reader.readJsonValue();
+      Object jsonValue = objectJsonAdapter.fromJson(reader);
       Map<String, Object> jsonObject = (Map<String, Object>) jsonValue;
       Object label = jsonObject.get(labelKey);
       if (label == null) {
