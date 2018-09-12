@@ -171,6 +171,19 @@ public final class RuntimeJsonAdapterFactoryTest {
     assertThat(reader.peek()).isEqualTo(JsonReader.Token.END_DOCUMENT);
   }
 
+  @Test public void objectAsBaseType() throws IOException {
+    Moshi moshi = new Moshi.Builder()
+        .add(RuntimeJsonAdapterFactory.of(Object.class, "type")
+            .registerSubtype(Success.class, "success"))
+        .build();
+    JsonAdapter<Object> adapter = moshi.adapter(Object.class);
+
+    assertThat(adapter.fromJson("{\"type\":\"success\",\"value\":\"Okay!\"}"))
+        .isEqualTo(new Success("Okay!"));
+    assertThat(adapter.toJson(new Success("Okay!")))
+        .isEqualTo("{\"type\":\"success\",\"value\":\"Okay!\"}");
+  }
+
   interface Message {
   }
 

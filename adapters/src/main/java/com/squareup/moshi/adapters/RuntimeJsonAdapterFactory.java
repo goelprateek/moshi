@@ -86,10 +86,16 @@ public final class RuntimeJsonAdapterFactory<T> implements JsonAdapter.Factory {
       typeToLabel.put(typeValue, label);
       labelToAdapter.put(label, moshi.adapter(typeValue));
     }
-    JsonAdapter<Object> objectJsonAdapter = moshi.nextAdapter(
-        this, Object.class, Util.NO_ANNOTATIONS);
-    return new RuntimeJsonAdapter(labelKey, labelToAdapter, typeToLabel, objectJsonAdapter)
-        .nullSafe();
+    boolean baseTypeIsObject = baseType == Object.class;
+    JsonAdapter<Object> objectJsonAdapter;
+    if (baseTypeIsObject) {
+      // Avoid circular dependency.
+      objectJsonAdapter = moshi.nextAdapter(this, Object.class, Util.NO_ANNOTATIONS);
+    } else {
+      objectJsonAdapter = moshi.adapter(Object.class);
+    }
+    return new RuntimeJsonAdapter(labelKey, labelToAdapter, typeToLabel, objectJsonAdapter,
+        baseTypeIsObject).nullSafe();
   }
 
   static final class RuntimeJsonAdapter extends JsonAdapter<Object> {
@@ -97,13 +103,17 @@ public final class RuntimeJsonAdapterFactory<T> implements JsonAdapter.Factory {
     final Map<String, JsonAdapter<Object>> labelToAdapter;
     final Map<Type, String> typeToLabel;
     final JsonAdapter<Object> objectJsonAdapter;
+    final boolean baseTypeIsObject;
+    boolean reentrantFromObjectAdapter = false;
 
     RuntimeJsonAdapter(String labelKey, Map<String, JsonAdapter<Object>> labelToAdapter,
-        Map<Type, String> typeToLabel, JsonAdapter<Object> objectJsonAdapter) {
+        Map<Type, String> typeToLabel, JsonAdapter<Object> objectJsonAdapter,
+        boolean baseTypeIsObject) {
       this.labelKey = labelKey;
       this.labelToAdapter = labelToAdapter;
       this.typeToLabel = typeToLabel;
       this.objectJsonAdapter = objectJsonAdapter;
+      this.baseTypeIsObject = baseTypeIsObject;
     }
 
     @Override public Object fromJson(JsonReader reader) throws IOException {
@@ -140,6 +150,25 @@ public final class RuntimeJsonAdapterFactory<T> implements JsonAdapter.Factory {
     }
 
     @Override public void toJson(JsonWriter writer, Object value) throws IOException {
+      if (!baseTypeIsObject) {
+        objectJsonAdapter.toJson(writer, toJsonMap(value));
+        return;
+      }
+      if (reentrantFromObjectAdapter) {
+        // This is an adapter for Object, and this is reentry from objectJsonAdapter.toJson.
+        // Delegate to objectJsonAdapter to handle normal Object encoding.
+        objectJsonAdapter.toJson(writer, value);
+        return;
+      }
+      reentrantFromObjectAdapter = true;
+      try {
+        objectJsonAdapter.toJson(writer, toJsonMap(value));
+      } finally {
+        reentrantFromObjectAdapter = false;
+      }
+    }
+
+    Map<String, Object> toJsonMap(Object value) {
       Class<?> type = value.getClass();
       String label = typeToLabel.get(type);
       if (label == null) {
@@ -157,7 +186,7 @@ public final class RuntimeJsonAdapterFactory<T> implements JsonAdapter.Factory {
       Map<String, Object> valueWithLabel = new LinkedHashMap<>(1 + jsonValue.size());
       valueWithLabel.put(labelKey, label);
       valueWithLabel.putAll(jsonValue);
-      objectJsonAdapter.toJson(writer, valueWithLabel);
+      return valueWithLabel;
     }
 
     @Override public String toString() {
